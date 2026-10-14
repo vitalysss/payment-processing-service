@@ -40,6 +40,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("idempotency_key", sa.String(length=255), nullable=False),
+        sa.Column("request_hash", sa.String(length=64), nullable=False),
         sa.Column("webhook_url", sa.Text(), nullable=False),
         sa.Column(
             "created_at",
@@ -81,4 +82,3 @@ def downgrade() -> None:
     op.drop_index("ix_outbox_unpublished", table_name="outbox_events")
     op.drop_table("outbox_events")
     op.drop_table("payments")
-

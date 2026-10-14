@@ -25,7 +25,10 @@ async def create_payment(
     existing = await session.scalar(
         select(Payment).where(Payment.idempotency_key == idempotency_key)
     )
+    fingerprint = request_fingerprint(data)
     if existing is not None:
+        if existing.request_hash != fingerprint:
+            raise IdempotencyConflictError
         return existing
 
     payment = Payment(
@@ -34,6 +37,7 @@ async def create_payment(
         description=data.description,
         metadata_=data.metadata,
         idempotency_key=idempotency_key,
+        request_hash=fingerprint,
         webhook_url=str(data.webhook_url),
     )
     session.add(payment)
@@ -55,6 +59,8 @@ async def create_payment(
         )
         if concurrent is None:
             raise
+        if concurrent.request_hash != fingerprint:
+            raise IdempotencyConflictError from None
         return concurrent
 
     await session.refresh(payment)
@@ -63,4 +69,3 @@ async def create_payment(
 
 async def get_payment(session: AsyncSession, payment_id: uuid.UUID) -> Payment | None:
     return await session.get(Payment, payment_id)
-

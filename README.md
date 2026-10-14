@@ -21,8 +21,8 @@ Client -> FastAPI -> PostgreSQL (payment + outbox in one transaction)
 ```
 
 - `POST /api/v1/payments` принимает платёж и отвечает `202 Accepted`.
-- Повторный запрос с тем же `Idempotency-Key` возвращает исходный платёж и не создаёт
-  второе событие.
+- Повторный запрос с тем же `Idempotency-Key` и тем же телом возвращает исходный
+  платёж и не создаёт второе событие. Если тело отличается, API отвечает `409 Conflict`.
 - Outbox publisher читает события с `FOR UPDATE SKIP LOCKED`, публикует persistent
   сообщения и помечает их отправленными только после подтверждения RabbitMQ.
 - Consumer ждёт 2–5 секунд, завершает платёж с вероятностью успеха 90% и отправляет
