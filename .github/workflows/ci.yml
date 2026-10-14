@@ -18,3 +18,17 @@ jobs:
       - run: pytest -q
       - run: docker compose config --quiet
       - run: docker build -t payment-processing-service:test .
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: docker compose --profile test up -d --build
+      - run: python scripts/smoke_test.py
+      - if: always()
+        run: docker compose --profile test logs --no-color
+      - if: always()
+        run: docker compose --profile test down -v

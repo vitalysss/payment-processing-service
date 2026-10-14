@@ -89,6 +89,19 @@ python -m venv .venv
 На Linux/macOS используйте `.venv/bin/...`. Интеграционные зависимости всё равно
 удобнее запускать через Compose.
 
+## Автоматический smoke-тест
+
+Профиль `test` добавляет внутренний webhook-приёмник. Скрипт проверяет создание и
+обработку платежа, повтор с тем же ключом и конфликт при изменённом теле:
+
+```bash
+docker compose --profile test up -d --build
+python scripts/smoke_test.py
+docker compose --profile test down -v
+```
+
+Тот же сценарий автоматически выполняется в GitHub Actions.
+
 ## Остановка
 
 ```bash

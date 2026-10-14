@@ -64,5 +64,15 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  webhook-sink:
+    <<: *app-service
+    command: ["uvicorn", "app.webhook_sink:app", "--host", "0.0.0.0", "--port", "9000"]
+    profiles: ["test"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/health')"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
 volumes:
   postgres_data:
