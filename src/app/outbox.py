@@ -40,6 +40,7 @@ async def publish_batch(batch_size: int = 50) -> bool:
                 .limit(batch_size)
             )
             events = list(result)
+            published_any = False
             for event in events:
                 try:
                     await broker.publish(
@@ -48,12 +49,13 @@ async def publish_batch(batch_size: int = 50) -> bool:
                         routing_key=PAYMENTS_ROUTING_KEY,
                         message_id=str(event.id),
                         correlation_id=str(event.aggregate_id),
-                        persistent=True,
+                        persist=True,
                     )
                     event.published_at = datetime.now(UTC)
                     event.last_error = None
+                    published_any = True
                 except Exception as exc:
                     event.attempts += 1
                     event.last_error = str(exc)[:2000]
                     logger.exception("Could not publish outbox event %s", event.id)
-        return bool(events)
+        return published_any

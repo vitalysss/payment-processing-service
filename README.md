@@ -41,7 +41,7 @@ docker compose up --build
 Compose сначала поднимает PostgreSQL и RabbitMQ, затем применяет Alembic-миграции и
 запускает API с consumer. После запуска доступны:
 
-- Swagger UI: http://localhost:8000/docs
+- Swagger UI: http://localhost:8001/docs
 - RabbitMQ UI: http://localhost:15672 (`payments` / `payments`)
 - API key по умолчанию: `dev-api-key`
 
@@ -53,7 +53,7 @@ Compose сначала поднимает PostgreSQL и RabbitMQ, затем п�
 Создать платёж:
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/payments \
+curl -X POST http://localhost:8001/api/v1/payments \
   -H "Content-Type: application/json" \
   -H "X-API-Key: dev-api-key" \
   -H "Idempotency-Key: order-42" \
@@ -69,7 +69,7 @@ curl -X POST http://localhost:8000/api/v1/payments \
 Получить состояние, подставив `payment_id` из ответа:
 
 ```bash
-curl http://localhost:8000/api/v1/payments/PAYMENT_ID \
+curl http://localhost:8001/api/v1/payments/PAYMENT_ID \
   -H "X-API-Key: dev-api-key"
 ```
 

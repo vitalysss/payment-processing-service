@@ -1,3 +1,11 @@
+x-app-service: &app-service
+  build: .
+  image: payment-processing-service:local
+  environment: &app-environment
+    API_KEY: ${API_KEY:-dev-api-key}
+    DATABASE_URL: postgresql+asyncpg://payments:payments@postgres:5432/payments
+    RABBITMQ_URL: amqp://payments:payments@rabbitmq:5672/
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -27,22 +35,17 @@ services:
       retries: 20
 
   migrate:
-    build: .
+    <<: *app-service
     command: ["alembic", "upgrade", "head"]
-    environment: &app-environment
-      API_KEY: ${API_KEY:-dev-api-key}
-      DATABASE_URL: postgresql+asyncpg://payments:payments@postgres:5432/payments
-      RABBITMQ_URL: amqp://payments:payments@rabbitmq:5672/
     depends_on:
       postgres:
         condition: service_healthy
     restart: "no"
 
   api:
-    build: .
-    environment: *app-environment
+    <<: *app-service
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8001}:8000"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -53,9 +56,8 @@ services:
       retries: 20
 
   consumer:
-    build: .
+    <<: *app-service
     command: ["faststream", "run", "app.consumer:app"]
-    environment: *app-environment
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -64,4 +66,3 @@ services:
 
 volumes:
   postgres_data:
-
