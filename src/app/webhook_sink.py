@@ -12,3 +12,7 @@ async def health() -> dict[str, str]:
 async def receive_webhook() -> Response:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+
+@app.post("/fail", status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+async def reject_webhook() -> Response:
+    return Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)

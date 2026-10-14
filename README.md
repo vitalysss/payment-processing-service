@@ -21,6 +21,7 @@ Client -> FastAPI -> PostgreSQL (payment + outbox in one transaction)
 ```
 
 - `POST /api/v1/payments` принимает платёж и отвечает `202 Accepted`.
+- Все endpoint'ы API, включая `/health`, требуют заголовок `X-API-Key`.
 - Повторный запрос с тем же `Idempotency-Key` и тем же телом возвращает исходный
   платёж и не создаёт второе событие. Если тело отличается, API отвечает `409 Conflict`.
 - Outbox publisher читает события с `FOR UPDATE SKIP LOCKED`, публикует persistent
@@ -92,7 +93,8 @@ python -m venv .venv
 ## Автоматический smoke-тест
 
 Профиль `test` добавляет внутренний webhook-приёмник. Скрипт проверяет создание и
-обработку платежа, повтор с тем же ключом и конфликт при изменённом теле:
+обработку платежа, повтор с тем же ключом, конфликт при изменённом теле, три
+неудачные попытки доставки webhook и появление сообщения в `payments.dlq`:
 
 ```bash
 docker compose --profile test up -d --build

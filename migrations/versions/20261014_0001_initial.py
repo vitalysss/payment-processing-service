@@ -53,7 +53,7 @@ def upgrade() -> None:
         sa.UniqueConstraint("idempotency_key"),
     )
     op.create_table(
-        "outbox_events",
+        "outbox",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("aggregate_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("event_type", sa.String(length=100), nullable=False),
@@ -72,13 +72,13 @@ def upgrade() -> None:
     )
     op.create_index(
         "ix_outbox_unpublished",
-        "outbox_events",
+        "outbox",
         ["published_at", "created_at"],
         unique=False,
     )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_outbox_unpublished", table_name="outbox_events")
-    op.drop_table("outbox_events")
+    op.drop_index("ix_outbox_unpublished", table_name="outbox")
+    op.drop_table("outbox")
     op.drop_table("payments")

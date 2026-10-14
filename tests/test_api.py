@@ -6,10 +6,17 @@ client = TestClient(app)
 
 
 def test_health_endpoint() -> None:
-    response = client.get("/health")
+    response = client.get("/health", headers={"X-API-Key": "dev-api-key"})
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_health_endpoint_requires_api_key() -> None:
+    response = client.get("/health")
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid or missing API key"}
 
 
 def test_payment_endpoint_requires_api_key() -> None:
@@ -25,4 +32,3 @@ def test_payment_endpoint_requires_api_key() -> None:
 
     assert response.status_code == 401
     assert response.json() == {"detail": "Invalid or missing API key"}
-

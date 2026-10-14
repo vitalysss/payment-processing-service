@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import sys
@@ -9,6 +10,15 @@ import uuid
 BASE_URL = os.getenv("SMOKE_BASE_URL", "http://localhost:8001")
 API_KEY = os.getenv("SMOKE_API_KEY", "dev-api-key")
 WEBHOOK_URL = os.getenv("SMOKE_WEBHOOK_URL", "http://webhook-sink:9000/webhook")
+FAILURE_WEBHOOK_URL = os.getenv(
+    "SMOKE_FAILURE_WEBHOOK_URL", "http://webhook-sink:9000/fail"
+)
+RABBITMQ_MANAGEMENT_URL = os.getenv(
+    "SMOKE_RABBITMQ_MANAGEMENT_URL",
+    "http://localhost:15672/api/queues/%2F/payments.dlq",
+)
+RABBITMQ_USER = os.getenv("SMOKE_RABBITMQ_USER", "payments")
+RABBITMQ_PASSWORD = os.getenv("SMOKE_RABBITMQ_PASSWORD", "payments")
 
 
 def request(
@@ -40,12 +50,40 @@ def wait_for_api(timeout: float = 60) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(f"{BASE_URL}/health", timeout=2) as response:
+            health_request = urllib.request.Request(
+                f"{BASE_URL}/health", headers={"X-API-Key": API_KEY}
+            )
+            with urllib.request.urlopen(health_request, timeout=2) as response:
                 if response.status == 200:
                     return
         except (OSError, urllib.error.URLError):
             time.sleep(1)
     raise TimeoutError("API did not become healthy")
+
+
+def dlq_message_count() -> int:
+    credentials = base64.b64encode(
+        f"{RABBITMQ_USER}:{RABBITMQ_PASSWORD}".encode()
+    ).decode()
+    req = urllib.request.Request(
+        RABBITMQ_MANAGEMENT_URL,
+        headers={"Authorization": f"Basic {credentials}"},
+    )
+    with urllib.request.urlopen(req, timeout=5) as response:
+        queue = json.loads(response.read())
+    return int(queue.get("messages", 0))
+
+
+def wait_for_final_status(payment_id: object, timeout: float = 30) -> dict[str, object]:
+    deadline = time.monotonic() + timeout
+    final: dict[str, object] = {}
+    while time.monotonic() < deadline:
+        status_code, final = request("GET", f"/api/v1/payments/{payment_id}")
+        assert status_code == 200
+        if final["status"] != "pending":
+            return final
+        time.sleep(1)
+    raise TimeoutError(f"Payment {payment_id} was not processed")
 
 
 def main() -> None:
@@ -73,18 +111,39 @@ def main() -> None:
     )
     assert status_code == 409
 
-    deadline = time.monotonic() + 30
-    final: dict[str, object] = {}
-    while time.monotonic() < deadline:
-        status_code, final = request("GET", f"/api/v1/payments/{payment_id}")
-        assert status_code == 200
-        if final["status"] != "pending":
-            break
-        time.sleep(1)
-
+    final = wait_for_final_status(payment_id)
     assert final["status"] in {"succeeded", "failed"}, final
     assert final["processed_at"] is not None
-    print(f"Smoke test passed: payment_id={payment_id}, status={final['status']}")
+
+    dlq_before = dlq_message_count()
+    failed_webhook_body = {
+        **body,
+        "description": "Automated DLQ smoke test",
+        "webhook_url": FAILURE_WEBHOOK_URL,
+    }
+    status_code, failed_webhook_payment = request(
+        "POST",
+        "/api/v1/payments",
+        body=failed_webhook_body,
+        idempotency_key=f"smoke-dlq-{uuid.uuid4()}",
+    )
+    assert status_code == 202, (status_code, failed_webhook_payment)
+    failed_webhook_payment_id = failed_webhook_payment["payment_id"]
+    wait_for_final_status(failed_webhook_payment_id)
+
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if dlq_message_count() >= dlq_before + 1:
+            break
+        time.sleep(1)
+    else:
+        raise TimeoutError("Failed webhook message did not reach payments.dlq")
+
+    print(
+        "Smoke test passed: "
+        f"payment_id={payment_id}, status={final['status']}, "
+        f"dlq_payment_id={failed_webhook_payment_id}"
+    )
 
 
 if __name__ == "__main__":
@@ -93,4 +152,3 @@ if __name__ == "__main__":
     except Exception as exc:
         print(f"Smoke test failed: {exc}", file=sys.stderr)
         raise
-
