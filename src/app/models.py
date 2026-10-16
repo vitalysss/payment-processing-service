@@ -34,7 +34,12 @@ class Payment(Base):
     description: Mapped[str | None] = mapped_column(Text)
     metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default=dict)
     status: Mapped[PaymentStatus] = mapped_column(
-        Enum(PaymentStatus, name="payment_status", native_enum=False),
+        Enum(
+            PaymentStatus,
+            name="payment_status",
+            native_enum=False,
+            values_callable=lambda enum_type: [item.value for item in enum_type],
+        ),
         default=PaymentStatus.PENDING,
         nullable=False,
     )

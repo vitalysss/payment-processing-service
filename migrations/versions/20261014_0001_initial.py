@@ -31,9 +31,9 @@ def upgrade() -> None:
         sa.Column(
             "status",
             sa.Enum(
-                "PENDING",
-                "SUCCEEDED",
-                "FAILED",
+                "pending",
+                "succeeded",
+                "failed",
                 name="payment_status",
                 native_enum=False,
             ),
