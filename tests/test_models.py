@@ -1,5 +1,5 @@
-from app.models import Payment
+from app.infrastructure.database.models import PaymentModel
 
 
 def test_payment_status_uses_public_lowercase_values() -> None:
-    assert Payment.__table__.c.status.type.enums == ["pending", "succeeded", "failed"]
+    assert PaymentModel.__table__.c.status.type.enums == ["pending", "succeeded", "failed"]

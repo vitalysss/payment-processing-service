@@ -1,8 +1,8 @@
 from fastapi import Depends, FastAPI
 
-from app.api import router
-from app.auth import require_api_key
-from app.config import settings
+from app.infrastructure.config import settings
+from app.presentation.api.auth import require_api_key
+from app.presentation.api.routes import router
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 app.include_router(router)

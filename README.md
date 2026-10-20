@@ -17,8 +17,22 @@ Client -> FastAPI -> PostgreSQL (payment + outbox in one transaction)
                           |
                        Client webhook
                           |
-                    3 retries -> DLQ
+               retry queues (1s -> 2s) -> DLQ
 ```
+
+Код разделён на слои, зависимости направлены внутрь:
+
+```text
+src/app/
+├── domain/          # сущности, enum, исключения и абстрактные порты
+├── application/     # use cases: create/get/process payment, outbox publisher
+├── infrastructure/  # SQLAlchemy, Unit of Work, RabbitMQ, gateway, HTTP webhook
+├── presentation/    # FastAPI-схемы, авторизация и routes
+└── workers/         # тонкий FastStream consumer
+```
+
+Домен и application-слой не импортируют FastAPI, FastStream или SQLAlchemy. Работа с
+БД скрыта за repository-портами и `UnitOfWork`; инфраструктура реализует эти порты.
 
 - `POST /api/v1/payments` принимает платёж и отвечает `202 Accepted`.
 - Все endpoint'ы API, включая `/health`, требуют заголовок `X-API-Key`.
@@ -26,10 +40,26 @@ Client -> FastAPI -> PostgreSQL (payment + outbox in one transaction)
   платёж и не создаёт второе событие. Если тело отличается, API отвечает `409 Conflict`.
 - Outbox publisher читает события с `FOR UPDATE SKIP LOCKED`, публикует persistent
   сообщения и помечает их отправленными только после подтверждения RabbitMQ.
-- Consumer ждёт 2–5 секунд, завершает платёж с вероятностью успеха 90% и отправляет
-  webhook.
-- Webhook выполняется до трёх раз с экспоненциальными паузами 1 и 2 секунды. После
-  последней ошибки исходное сообщение отклоняется в `payments.dlq`.
+- Consumer только преобразует входящее сообщение и вызывает application service.
+  Use case читает платёж в короткой транзакции, закрывает её, вызывает шлюз и затем
+  сохраняет результат отдельной условной операцией `UPDATE ... WHERE status = pending`.
+  Во время ожидания шлюза 2–5 секунд и webhook транзакция и row lock не удерживаются.
+- Одна доставка сообщения выполняет только одну попытку webhook. При ошибке сообщение
+  с увеличенным номером попытки публикуется в durable retry-очередь. RabbitMQ выдерживает
+  задержки 1 и 2 секунды через TTL и возвращает сообщение в `payments.new`. После третьей
+  отдельной обработки сообщение отклоняется и маршрутизируется через `payments.dlx` в
+  `payments.dlq`.
+
+### Гарантии и границы транзакций
+
+- Создание `payments` и `outbox` выполняется одной транзакцией PostgreSQL.
+- Публикация исходного события имеет семантику at-least-once; повторная доставка не
+  запускает шлюз для уже завершённого платежа.
+- Retry-сообщение подтверждается RabbitMQ до acknowledgement исходной доставки. Если
+  повторная публикация не удалась, исходное сообщение будет requeue, а не потеряно.
+- ID платежа передаётся в gateway-порт как idempotency key для адаптера реального шлюза.
+- Exactly-once между независимыми системами не заявляется; получатель webhook также
+  должен обрабатывать повтор по `payment_id` идемпотентно.
 
 ## Запуск через Docker
 

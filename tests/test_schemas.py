@@ -3,8 +3,8 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from app.models import Currency
-from app.schemas import PaymentCreate
+from app.domain.enums import Currency
+from app.presentation.api.schemas import PaymentCreate
 
 
 def test_payment_create_accepts_supported_currency() -> None:
@@ -37,4 +37,3 @@ def test_payment_create_rejects_unknown_currency() -> None:
             currency="GBP",
             webhook_url="https://client.example/webhook",
         )
-

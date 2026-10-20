@@ -1,53 +1,48 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
-from uuid import uuid4
 
 import httpx
 import pytest
 
-from app.models import Currency, PaymentStatus
-from app.schemas import WebhookPayload
-from app.webhook import WebhookDeliveryError, deliver_webhook
+from app.domain.entities import Payment
+from app.domain.enums import Currency, PaymentStatus
+from app.domain.exceptions import WebhookDeliveryError
+from app.infrastructure.webhook import HttpWebhookSender
 
 
-def payload() -> WebhookPayload:
-    return WebhookPayload(
-        payment_id=uuid4(),
-        status=PaymentStatus.SUCCEEDED,
+def processed_payment() -> Payment:
+    payment = Payment.create(
         amount=Decimal("12.50"),
         currency=Currency.EUR,
-        processed_at=datetime.now(UTC),
+        description=None,
+        metadata={},
+        idempotency_key="webhook-1",
+        request_hash="hash",
+        webhook_url="https://client.example/webhook",
     )
+    payment.mark_processed(PaymentStatus.SUCCEEDED, datetime.now(UTC))
+    return payment
 
 
-async def test_webhook_retries_then_succeeds() -> None:
+async def test_webhook_adapter_performs_one_attempt() -> None:
     request = httpx.Request("POST", "https://client.example/webhook")
-    failure = httpx.Response(503, request=request)
-    success = httpx.Response(204, request=request)
+    response = httpx.Response(204, request=request)
 
-    with (
-        patch("app.webhook.settings.webhook_max_attempts", 3),
-        patch("app.webhook.asyncio.sleep", new_callable=AsyncMock),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as post,
-    ):
-        post.side_effect = [failure, success]
-        await deliver_webhook(str(request.url), payload())
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as post:
+        post.return_value = response
+        await HttpWebhookSender().send(processed_payment())
 
-    assert post.await_count == 2
+    post.assert_awaited_once()
 
 
-async def test_webhook_raises_after_three_failures() -> None:
+async def test_webhook_error_is_delegated_to_broker_retry() -> None:
     request = httpx.Request("POST", "https://client.example/webhook")
-    failure = httpx.Response(503, request=request)
+    response = httpx.Response(503, request=request)
 
-    with (
-        patch("app.webhook.settings.webhook_max_attempts", 3),
-        patch("app.webhook.asyncio.sleep", new_callable=AsyncMock),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as post,
-    ):
-        post.return_value = failure
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as post:
+        post.return_value = response
         with pytest.raises(WebhookDeliveryError):
-            await deliver_webhook(str(request.url), payload())
+            await HttpWebhookSender().send(processed_payment())
 
-    assert post.await_count == 3
+    post.assert_awaited_once()

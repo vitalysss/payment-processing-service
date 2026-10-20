@@ -43,7 +43,12 @@ def request(
         with urllib.request.urlopen(req, timeout=5) as response:
             return response.status, json.loads(response.read())
     except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read())
+        raw_body = exc.read()
+        try:
+            error_body = json.loads(raw_body)
+        except json.JSONDecodeError:
+            error_body = {"detail": raw_body.decode(errors="replace") or "empty response"}
+        return exc.code, error_body
 
 
 def wait_for_api(timeout: float = 60) -> None:

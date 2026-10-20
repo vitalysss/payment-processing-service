@@ -57,7 +57,7 @@ services:
 
   consumer:
     <<: *app-service
-    command: ["faststream", "run", "app.consumer:app"]
+    command: ["faststream", "run", "app.workers.payment_consumer:app"]
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -66,7 +66,7 @@ services:
 
   webhook-sink:
     <<: *app-service
-    command: ["uvicorn", "app.webhook_sink:app", "--host", "0.0.0.0", "--port", "9000"]
+    command: ["uvicorn", "app.infrastructure.testing.webhook_sink:app", "--host", "0.0.0.0", "--port", "9000"]
     profiles: ["test"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/health')"]

@@ -17,7 +17,8 @@ class Settings(BaseSettings):
     gateway_success_rate: float = Field(default=0.9, ge=0, le=1)
 
     webhook_timeout_seconds: float = Field(default=5, gt=0)
-    webhook_max_attempts: int = Field(default=3, ge=1, le=10)
+    message_max_attempts: int = Field(default=3, ge=1, le=10)
+    retry_base_delay_seconds: int = Field(default=1, ge=1, le=60)
     outbox_poll_interval_seconds: float = Field(default=1, gt=0)
 
 
@@ -27,4 +28,3 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
-

@@ -1,65 +1,78 @@
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
-from uuid import uuid4
+from datetime import datetime
+from typing import Self
+from unittest.mock import AsyncMock
+from uuid import UUID, uuid4
 
-from app.outbox import publish_batch
+from app.application.outbox import PublishOutboxBatchService
+from app.domain.entities import OutboxEvent
 
 
-class FakeSession:
-    def __init__(self, event: SimpleNamespace) -> None:
+class FakeOutboxRepository:
+    def __init__(self, event: OutboxEvent) -> None:
         self.event = event
 
-    async def __aenter__(self) -> "FakeSession":
+    async def list_unpublished_locked(self, limit: int) -> list[OutboxEvent]:
+        assert limit == 50
+        return [self.event]
+
+    async def mark_published(self, event_id: UUID, published_at: datetime) -> None:
+        assert event_id == self.event.id
+        self.event.published_at = published_at
+        self.event.last_error = None
+
+    async def record_failure(self, event_id: UUID, error: str) -> None:
+        assert event_id == self.event.id
+        self.event.attempts += 1
+        self.event.last_error = error
+
+
+class FakeUnitOfWork:
+    def __init__(self, event: OutboxEvent) -> None:
+        self.outbox = FakeOutboxRepository(event)
+        self.payments = None
+        self.committed = False
+
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(self, *args: object) -> None:
-        return None
+        pass
 
-    def begin(self) -> "FakeSession":
-        return self
+    async def commit(self) -> None:
+        self.committed = True
 
-    async def scalars(self, statement: object) -> list[SimpleNamespace]:
-        return [self.event]
-
-
-def event() -> SimpleNamespace:
-    return SimpleNamespace(
-        id=uuid4(),
-        aggregate_id=uuid4(),
-        payload={"payment_id": str(uuid4())},
-        attempts=0,
-        last_error=None,
-        published_at=None,
-    )
+    async def rollback(self) -> None:
+        pass
 
 
-async def test_outbox_publishes_persistent_message() -> None:
+def event() -> OutboxEvent:
+    return OutboxEvent.payment_created(uuid4())
+
+
+async def test_outbox_marks_event_only_after_publish_confirmation() -> None:
     item = event()
+    uow = FakeUnitOfWork(item)
     publisher = AsyncMock()
+    service = PublishOutboxBatchService(lambda: uow, publisher)
 
-    with (
-        patch("app.outbox.session_factory", return_value=FakeSession(item)),
-        patch("app.outbox.broker.publish", publisher),
-    ):
-        published = await publish_batch()
+    published = await service.execute()
 
     assert published is True
     assert item.published_at is not None
-    assert publisher.await_args.kwargs["persist"] is True
+    publisher.publish.assert_awaited_once_with(item)
+    assert uow.committed is True
 
 
-async def test_outbox_failure_is_recorded_without_busy_loop() -> None:
+async def test_outbox_records_publish_failure() -> None:
     item = event()
+    uow = FakeUnitOfWork(item)
+    publisher = AsyncMock()
+    publisher.publish.side_effect = RuntimeError("RabbitMQ unavailable")
+    service = PublishOutboxBatchService(lambda: uow, publisher)
 
-    with (
-        patch("app.outbox.session_factory", return_value=FakeSession(item)),
-        patch("app.outbox.broker.publish", new_callable=AsyncMock) as publisher,
-    ):
-        publisher.side_effect = RuntimeError("RabbitMQ unavailable")
-        published = await publish_batch()
+    published = await service.execute()
 
     assert published is False
     assert item.attempts == 1
     assert item.last_error == "RabbitMQ unavailable"
     assert item.published_at is None
-
